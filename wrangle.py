@@ -6,6 +6,17 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
 from sklearn.model_selection import train_test_split
+import sklearn.preprocessing
+
+def get_df():
+    """
+    This function will:
+    - read from local directory for csv file
+        - return if exists
+    - Output zillow df
+"""
+    df = pd.read_csv("zillow.csv")
+    return df
 
 def get_zillow_data(directory=os.getcwd(), filename="zillow.csv"):
     """
@@ -58,7 +69,7 @@ def remove_outliers(df, exclude_column=None, threshold=4):
     
     return df_clean
 
-def remove_outliers(df, exclude_column=None, sd=4):
+def remove_outliers(df, exclude_column=None, sd=3):
     """
     Remove outliers from a pandas DataFrame using the Z-score method.
     
@@ -125,7 +136,36 @@ def split_data(df):
                                     random_state=123)
     return train, validate, test
 
-def split_clean_zillow(df):
+def split_clean_zillow():
+    """
+    Remove nulls froms DataFrame.
+    
+    Args:
+    df (pandas.DataFrame): The DataFrame containing the data.
+    
+    Returns:
+    pandas.DataFrame: The DataFrame split into train, validate, test with nulls and outliers removed.
+    """
+    df = pd.read_csv("zillow.csv")
+    df = df.dropna()
+    df = df.drop(columns=["Unnamed: 0"])
+    # rename columns 
+    df = df.rename(columns={"bedroomcnt": "bedroom",
+                            "bathroomcnt": "bathroom",
+                            "calculatedfinishedsquarefeet": "area",
+                            "taxvaluedollarcnt": "property_value",
+                            "yearbuilt": "year",
+                            "taxamount": "tax"})
+    df = remove_outliers(df,exclude_column=("fips"))
+    df["fips"] = df.fips.map({6037: "LA", 6059: "Orange", 6111: "Ventura"})
+    dummy_df = pd.get_dummies(df[["fips"]], drop_first=True)
+    df = pd.concat([df, dummy_df], axis=1)
+    
+    df = df.rename(columns={"fips_Orange": "orange", "fips_Ventura": "ventura"})
+    train, validate, test = split_data(df)
+    return train, validate, test
+
+def split_scale(df):
     """
     Remove nulls froms DataFrame.
     
@@ -145,6 +185,22 @@ def split_clean_zillow(df):
                             "yearbuilt": "year",
                             "taxamount": "tax"})
     df["fips"] = df.fips.map({6037: "LA", 6059: "Orange", 6111: "Ventura"})
-    df = remove_outliers(df,exclude_column="fips")
-    train, validate, test = split_data(df)
+    dummy_df = pd.get_dummies(df[["fips"]], drop_first=True)
+    df = pd.concat([df, dummy_df], axis=1)
+    df = df.rename(columns={"fips_Orange": "orange", "fips_Ventura": "ventura"})
+    df = df.drop(columns=["fips", "property_value"])
+    df = remove_outliers(df)
+    train, validate, test = split_data(df["bedroom", "bathroom", "area", "property_value", "year", "tax", "fips"])
     return train, validate, test
+
+def mm_scale(df):
+    train, validate, test = split_scale(df)
+    scaler = sklearn.preprocessing.MinMaxScaler()
+    scaler.fit(train)
+
+
+    x_train_scaled = scaler.transform(train)
+    x_validate_scaled = scaler.transform(validate)
+    x_test_scaled = scaler.transform(test)
+    
+    return x_train_scaled, x_validate_scaled, x_test_scaled
