@@ -43,55 +43,6 @@ def get_zillow_data(directory=os.getcwd(), filename="zillow.csv"):
         return df
 
 
-def remove_outliers(df, exclude_column=None, threshold=4):
-    """
-    This function removes outliers from a pandas dataframe, with an option to exclude a single column.
-    
-    Args:
-    df: pandas dataframe
-    exclude_column: string, optional column name to exclude from outlier detection
-    threshold: float, optional number of standard deviations from the mean to consider a value an outlier
-    
-    Returns:
-    pandas dataframe with outliers removed
-    """
-    if exclude_column is not None:
-        # Copy dataframe and drop excluded column
-        df_clean = df.drop(columns=exclude_column)
-    else:
-        df_clean = df.copy()
-    
-    # Calculate z-score for each value
-    z_scores = np.abs((df_clean - df_clean.mean()) / df_clean.std())
-    
-    # Remove rows with any value above threshold
-    df_clean = df.loc[(z_scores < threshold).all(axis=1)]
-    
-    return df_clean
-
-def remove_outliers(df, exclude_column=None, sd=3):
-    """
-    Remove outliers from a pandas DataFrame using the Z-score method.
-    
-    Args:
-    df (pandas.DataFrame): The DataFrame containing the data.
-    
-    Returns:
-    pandas.DataFrame: The DataFrame with outliers removed.
-    """
-    num_outliers_total = 0
-    for column in df.columns:
-        if column == exclude_column:
-            continue
-        series = df[column]
-        z_scores = np.abs(stats.zscore(series))
-        num_outliers = len(z_scores[z_scores > sd])
-        num_outliers_total += num_outliers
-        df = df[(z_scores <= sd) | pd.isnull(df[column])]
-        print(f"{num_outliers} outliers removed from {column}.")
-    print(f"\nTotal of {num_outliers_total} outliers removed.")
-    return df
-
 def plot_histograms(df):
     """
     Plots a histogram of each column in a pandas DataFrame using seaborn.
@@ -165,6 +116,64 @@ def split_clean_zillow():
     train, validate, test = split_data(df)
     return train, validate, test
 
+def remove_outliers(df, exclude_column=[["bathroom_full", "ventura" , "orange"]], sd=4):
+    """
+    Remove outliers from a pandas DataFrame using the Z-score method.
+    
+    Args:
+    df (pandas.DataFrame): The DataFrame containing the data.
+    
+    Returns:
+    pandas.DataFrame: The DataFrame with outliers removed.
+    """
+    num_outliers_total = 0
+    for column in df.columns:
+        if column == exclude_column:
+            continue
+        series = df[column]
+        z_scores = np.abs(stats.zscore(series))
+        num_outliers = len(z_scores[z_scores > sd])
+        num_outliers_total += num_outliers
+        df = df[(z_scores <= sd) | pd.isnull(df[column])]
+        print(f"{num_outliers} outliers removed from {column}.")
+    print(f"\nTotal of {num_outliers_total} outliers removed.")
+    return df
+
+def categorize_bathrooms(bathrooms):
+    """
+    Categorizes the column bathrooms into 'full' and 'half'
+    """
+    if bathrooms.is_integer():
+        return 1
+    else:
+        return 0
+
+def remove_outliers3(df, columns_to_skip=[], z_score_threshold=3):
+    """
+    Remove outliers from a dataframe while skipping specified columns.
+
+    Args:
+        df (pandas.DataFrame): The input dataframe.
+        columns_to_skip (list): A list of column names to skip while removing outliers. Default is an empty list.
+        z_score_threshold (float): The threshold value for the z-score. Values with a z-score higher than the threshold will be considered outliers. Default is 3.
+
+    Returns:
+        pandas.DataFrame: The dataframe with outliers removed.
+    """
+    df_cleaned = df.copy()
+
+    for column in df.columns:
+        if column in columns_to_skip:
+            continue
+
+        # Calculate z-scores for the column
+        z_scores = np.abs((df[column] - df[column].mean()) / df[column].std())
+
+        # Filter out rows with z-scores higher than the threshold
+        df_cleaned = df_cleaned[z_scores <= z_score_threshold]
+
+    return df_cleaned
+
 def split_scale(df):
     """
     Remove nulls froms DataFrame.
@@ -173,7 +182,7 @@ def split_scale(df):
     df (pandas.DataFrame): The DataFrame containing the data.
     
     Returns:
-    pandas.DataFrame: The DataFrame split into train, validate, test with nulls and outliers removed.
+    pandas.DataFrame: The DataFrame split into train, validate, test with nulls, outliers removed, and scaled on minmax.
     """
     df = df.dropna()
     df = df.drop(columns=["Unnamed: 0"])
@@ -181,17 +190,56 @@ def split_scale(df):
     df = df.rename(columns={"bedroomcnt": "bedroom",
                         	"bathroomcnt": "bathroom",
                             "calculatedfinishedsquarefeet": "area",
-                            "taxvaluedollarcnt": "property_value",
                             "yearbuilt": "year",
-                            "taxamount": "tax"})
+                            "taxamount": "tax",
+                            "taxvaluedollarcnt": "value"})
     df["fips"] = df.fips.map({6037: "LA", 6059: "Orange", 6111: "Ventura"})
+
+    # Add new column bathroom_type: full or half baths
+    df['bathroom_full'] = df['bathroom'].apply(categorize_bathrooms)
+
     dummy_df = pd.get_dummies(df[["fips"]], drop_first=True)
     df = pd.concat([df, dummy_df], axis=1)
+    
     df = df.rename(columns={"fips_Orange": "orange", "fips_Ventura": "ventura"})
-    df = df.drop(columns=["fips", "property_value"])
+    
+    
+    df = df.drop(columns=["fips"])
     df = remove_outliers(df)
-    train, validate, test = split_data(df["bedroom", "bathroom", "area", "property_value", "year", "tax", "fips"])
-    return train, validate, test
+    df = pd.DataFrame(df)
+
+    df = df[["bedroom", "bathroom", "bathroom_full", "area", "year", "tax", "orange", "ventura", "value"]]
+    train, validate, test = split_data(df)
+
+    # Scale train, validate, and test
+    scaler = sklearn.preprocessing.MinMaxScaler()
+    scaler.fit(train)
+
+
+    x_train_scaled = scaler.transform(train)
+    x_validate_scaled = scaler.transform(validate)
+    x_test_scaled = scaler.transform(test)
+    # Convert the array to a DataFrame
+    df_x_train_scaled = pd.DataFrame(x_train_scaled)
+    df_train = df_x_train_scaled.rename(columns={0: 'bedroom', 1: 'bathroom', 2: 'bathroom_full', 3: 'area', 4: 'year', 5: 'tax', 6: 'orange', 7:'ventura', 8: "value"})
+    x_train_scaled = df_train[["bedroom", "bathroom", "bathroom_full", "area", "year", "tax", "orange", "ventura"]]
+    
+    df_x_validate_scaled = pd.DataFrame(x_validate_scaled)
+    df_validate = df_x_validate_scaled.rename(columns={0: 'bedroom', 1: 'bathroom', 2: 'bathroom_full', 3: 'area', 4: 'year', 5: 'tax', 6: 'orange', 7:'ventura', 8: "value"})
+    x_validate_scaled= df_train[["bedroom", "bathroom", "bathroom_full", "area", "year", "tax", "orange", "ventura"]]
+    
+    df_x_test_scaled = pd.DataFrame(x_test_scaled)
+    df_test = df_x_test_scaled.rename(columns={0: 'bedroom', 1: 'bathroom', 2: 'bathroom_full', 3: 'area', 4: 'year', 5: 'tax', 6: 'orange', 7:'ventura', 8: "value"})
+    x_test_scaled = df_train[["bedroom", "bathroom", "bathroom_full", "area", "year", "tax", "orange", "ventura"]]
+    # Y 
+    
+    y_train_scaled = df_train[["value"]]
+    y_validate_scaled = df_validate[["value"]]
+    y_test_scaled = df_test[["value"]]
+
+    return x_train_scaled, x_validate_scaled, x_test_scaled, y_train_scaled, y_validate_scaled, y_test_scaled
+    
+
 
 def mm_scale(df):
     train, validate, test = split_scale(df)
@@ -204,3 +252,62 @@ def mm_scale(df):
     x_test_scaled = scaler.transform(test)
     
     return x_train_scaled, x_validate_scaled, x_test_scaled
+
+
+def split_scale1(df):
+    """
+    Remove nulls froms DataFrame.
+    
+    Args:
+    df (pandas.DataFrame): The DataFrame containing the data.
+    
+    Returns:
+    pandas.DataFrame: The DataFrame split into train, validate, test with nulls, outliers removed, and scaled on minmax.
+    """
+    df = df.dropna()
+    df = df.drop(columns=["Unnamed: 0"])
+    # rename columns 
+    df = df.rename(columns={"bedroomcnt": "bedroom",
+                        	"bathroomcnt": "bathroom",
+                            "calculatedfinishedsquarefeet": "area",
+                            "yearbuilt": "year",
+                            "taxamount": "tax",
+                            "taxvaluedollarcnt": "value"})
+    df["fips"] = df.fips.map({6037: "LA", 6059: "Orange", 6111: "Ventura"})
+
+    # Add new column bathroom_type: full or half baths
+    df['bathroom_full'] = df['bathroom'].apply(categorize_bathrooms)
+
+    dummy_df = pd.get_dummies(df[["fips"]], drop_first=True)
+    df = pd.concat([df, dummy_df], axis=1)
+    
+    df = df.rename(columns={"fips_Orange": "orange", "fips_Ventura": "ventura"})
+    
+    
+    df = df.drop(columns=["fips"])
+    df = remove_outliers(df)
+    df = pd.DataFrame(df)
+
+    df = df[["bedroom", "bathroom", "bathroom_full", "area", "year", "tax", "orange", "ventura", "value"]]
+    train, validate, test = split_data(df)
+
+    # Scale train, validate, and test
+    scaler = sklearn.preprocessing.MinMaxScaler()
+    scaler.fit(train)
+
+
+    x_train_scaled = scaler.transform(train)
+    x_validate_scaled = scaler.transform(validate)
+    x_test_scaled = scaler.transform(test)
+    # Convert the array to a DataFrame
+    df_x_train_scaled = pd.DataFrame(x_train_scaled)
+    df_train = df_x_train_scaled.rename(columns={0: 'bedroom', 1: 'bathroom', 2: 'bathroom_full', 3: 'area', 4: 'year', 5: 'tax', 6: 'orange', 7:'ventura', 8: "value"})
+   
+    df_x_validate_scaled = pd.DataFrame(x_validate_scaled)
+    df_validate = df_x_validate_scaled.rename(columns={0: 'bedroom', 1: 'bathroom', 2: 'bathroom_full', 3: 'area', 4: 'year', 5: 'tax', 6: 'orange', 7:'ventura', 8: "value"})
+
+    df_x_test_scaled = pd.DataFrame(x_test_scaled)
+    df_test = df_x_test_scaled.rename(columns={0: 'bedroom', 1: 'bathroom', 2: 'bathroom_full', 3: 'area', 4: 'year', 5: 'tax', 6: 'orange', 7:'ventura', 8: "value"})
+
+    return df_train, df_validate, df_test
+    
