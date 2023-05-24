@@ -1,13 +1,6 @@
-import pandas as pd
-import numpy as np
+import warnings
+warnings.filterwarnings('ignore')
 
-from sklearn.metrics import mean_squared_error
-
-import wrangle as w
-
-
-import env
-import os
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -17,48 +10,35 @@ from sklearn.model_selection import train_test_split
 import sklearn.preprocessing
 from sklearn.linear_model import LinearRegression
 
-from scipy import stats
+
 from sklearn.metrics import mean_squared_error, r2_score, explained_variance_score
-
-from sklearn.linear_model import LinearRegression
-from sklearn.feature_selection import f_regression 
 from math import sqrt
-import matplotlib.pyplot as plt
-import warnings
-warnings.filterwarnings('ignore')
 
+def split_into_xy(train, validate, test, target="property_value"):
+    x_train = train.drop(target, axis=1)
+    y_train = train[target]
 
+    # Split validate data into X and y
+    x_validate = validate.drop(target, axis=1)
+    y_validate = validate[target]
 
-def compare_sse(df, x, y):
-    # create baseline
-    df['yhat_baseline'] = df[y].mean()
-    
-    # creating simplae model 
-    lr = LinearRegression()
-    ols_model = lr.fit(df[[x]], df[y])
-    df['yhat'] = ols_model.predict(df[[x]])
-    
-    # compute SSE
-    SSE = mean_squared_error(df[y], df.yhat)*len(df)
-    SSE_baseline = mean_squared_error(df[y], df.yhat_baseline)*len(df)
-    
-    # compute MSE
-    MSE = mean_squared_error(df[y], df.yhat)
-    MSE_baseline = mean_squared_error(df[y], df.yhat_baseline)
-    
-    # compute RMSE
-    RMSE = sqrt(mean_squared_error(df[y], df.yhat))
-    RMSE_baseline = sqrt(mean_squared_error(df[y], df.yhat_baseline))
-    
-    # compute ESS
-    ESS = sum((df.yhat - df[y].mean())**2)
-    
-    # create dataframe
-    df_eval = pd.DataFrame(np.array(['SSE','MSE','RMSE', 'SSE_baseline','MSE_baseline','RMSE_baseline']), columns=['metric'])
+    # Split test data into X and y
+    x_test = test.drop(target, axis=1)
+    y_test = test[target]
+    return x_train, y_train, x_validate, y_validate, x_test, y_test
 
-    df_eval['model_error'] = np.array([SSE, MSE, RMSE, SSE_baseline, MSE_baseline, RMSE_baseline])
-    
-    return pd.DataFrame(df_eval)
+def get_yhat(train, x, y):
+    '''
+    Will fit your train DataFrame, x, y on LinerRegression()
+
+    Returns:
+    pandas.DataFrame with two columns baseline on y and yhat predictions
+    '''
+    model = LinearRegression().fit(train[[x]], train[y])
+    predictions = model.predict(train[[x]])
+    train['baseline'] = train[y].mean()
+    train['yhat'] = predictions
+    return train
 
 def compare_models(y, yhat, y_baseline):
     # Calculate the sum of squared errors for the model and the baseline
@@ -116,8 +96,10 @@ def regression_errors(y, yhat):
 
     return sse, ess, tss, mse, rmse
 
-
 def baseline_mean_errors(y):
+    '''
+    
+    '''
     # Calculate the mean of y
     y_mean = np.mean(y)
 
@@ -148,3 +130,34 @@ def better_than_baseline(y, yhat):
         return True
     else:
         return False
+    
+def compare_sse(df, x, y):
+    # create baseline
+    df['yhat_baseline'] = df[y].mean()
+    
+    # creating simplae model 
+    lr = LinearRegression()
+    ols_model = lr.fit(df[[x]], df[y])
+    df['yhat'] = ols_model.predict(df[[x]])
+    
+    # compute SSE
+    SSE = mean_squared_error(df[y], df.yhat)*len(df)
+    SSE_baseline = mean_squared_error(df[y], df.yhat_baseline)*len(df)
+    
+    # compute MSE
+    MSE = mean_squared_error(df[y], df.yhat)
+    MSE_baseline = mean_squared_error(df[y], df.yhat_baseline)
+    
+    # compute RMSE
+    RMSE = sqrt(mean_squared_error(df[y], df.yhat))
+    RMSE_baseline = sqrt(mean_squared_error(df[y], df.yhat_baseline))
+    
+    # compute ESS
+    ESS = sum((df.yhat - df[y].mean())**2)
+    
+    # create dataframe
+    df_eval = pd.DataFrame(np.array(['SSE','MSE','RMSE', 'SSE_baseline','MSE_baseline','RMSE_baseline']), columns=['metric'])
+
+    df_eval['model_error'] = np.array([SSE, MSE, RMSE, SSE_baseline, MSE_baseline, RMSE_baseline])
+    
+    return pd.DataFrame(df_eval)
